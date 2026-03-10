@@ -39,7 +39,7 @@ class Player(pygame.sprite.Sprite): # editing rn
         self.image = self.animations[self.state][self.frame_index]
         self.rect = self.image.get_rect(center = (640, 535))
         self.flip = False
-        self.hitbox = self.rect.inflate(-60, 0)
+        self.hitbox = self.rect.inflate(-120, -100)
 
     def get_frames(self, x, y, w, h, count):
         """Slices a row of frames from the sheet"""
@@ -53,7 +53,6 @@ class Player(pygame.sprite.Sprite): # editing rn
     
     def apply_gravity(self, platforms):
         self.on_ground = False
-
         self.direction.y += self.gravity
         self.hitbox.y += self.direction.y
 
@@ -63,10 +62,7 @@ class Player(pygame.sprite.Sprite): # editing rn
             if self.hitbox.colliderect(platform.rect):
                 # Only stop if we are falling DOWN onto the platfrom
                 if self.direction.y  > 0:
-                    self.hitbox.bottom = platform.rect.top
-
                     self.hitbox.bottom = platform.rect.top + 25
-
                     self.direction.y = 0
                     self.on_ground = True
 
@@ -76,7 +72,7 @@ class Player(pygame.sprite.Sprite): # editing rn
             self.direction.y = 0
             self.on_ground = True
 
-        self.rect.center = self.hitbox.center
+        self.rect.midbottom = self.hitbox.midbottom
     
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -132,7 +128,7 @@ class Player(pygame.sprite.Sprite): # editing rn
         self.apply_gravity(platforms)
         self.animate()
 
-        self.rect.center = self.hitbox.center
+        self.rect.midbottom = self.hitbox.midbottom
 
 pygame.init()
 screen = pygame.display.set_mode((1280,720))
@@ -159,11 +155,12 @@ for i in range(25):
 # Platform
 tileset_pf = pygame.image.load('asset/asset_1/sprites/tilesets/plains.png').convert()
 plat_tile_surf = tileset_pf.subsurface(pygame.Rect(15, 112, 48, 16))
-plat_tile_surf = pygame.transform.rotozoom(plat_tile_surf, 0, 3.0)
+
+plat_tile_surf = pygame.transform.scale(plat_tile_surf, (288, 48))
 
 platforms_group = pygame.sprite.Group()
 
-platform_coords = [(100, 400), (100, 100), (450, 250), (800, 400), (1000, 100)]
+platform_coords = [(100, 400), (100, 100), (450, 250), (800, 400), (900, 150)]
 
 for pos in platform_coords:
     # Pass the 'plat_tile_surf' we just created into the class
