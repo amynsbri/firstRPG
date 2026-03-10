@@ -1,5 +1,6 @@
 import pygame
 from sys import exit
+import random
 
 class StaticItem(pygame.sprite.Sprite):
     def __init__(self, pos, surface):
@@ -13,8 +14,7 @@ class Platform(pygame.sprite.Sprite):
         self.image = surface
         self.rect = self.image.get_rect(topleft = pos)
         
-
-class Player(pygame.sprite.Sprite): # editing rn
+class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         self.sheet = pygame.image.load('asset/asset_1/sprites/characters/player.png')
@@ -130,6 +130,30 @@ class Player(pygame.sprite.Sprite): # editing rn
 
         self.rect.midbottom = self.hitbox.midbottom
 
+class Slime(pygame.sprite.Sprite):
+    def __init__(self, platform):
+        super().__init__()
+        # self.sheet = pygame.image.load('asset/asset_1/sprites/characters/skeleton.png').convert_alpha()
+
+        # Slime placeholder
+        self.image = pygame.Surface((32, 32))
+        self.image.fill('Green')
+
+        self.platform = platform
+        # Spawn at a random X position within the platform width
+        start_x = random.randint(self.platform.rect.left, self.platform.rect.right - 32)
+        self.rect = self.image.get_rect(midbottom = (start_x, self.platform.rect.top))
+
+        self.speed = random.choice([-2, 2]) # random initial direction
+
+    def update(self):
+        self.rect.x += self.speed
+
+        # Turn around if hitting the edge of the platform
+        if self.rect.right > self.platform.rect.right or self.rect.left < self.platform.rect.left:
+            self.speed *= -1
+
+
 pygame.init()
 screen = pygame.display.set_mode((1280,720))
 clock = pygame.time.Clock()
@@ -169,6 +193,16 @@ for pos in platform_coords:
 
 player = pygame.sprite.GroupSingle(Player())
 
+# Slime
+
+slimes_group = pygame.sprite.Group()
+
+# For every platform, decide if a slime should spawn there
+for plat in platforms_group:
+    # 50% chance to spawn a slime on this platform
+    for _ in range(random.randint(1, 2)):
+        new_slime = Slime(plat)
+        slimes_group.add(new_slime)
 
 
 while True:
@@ -183,6 +217,9 @@ while True:
     decor_group.draw(screen)
     platforms_group.draw(screen)
 
+    # Slimes
+    slimes_group.update()
+    slimes_group.draw(screen)
         
     player.update(platforms_group) # This calls handle_input and animate automatically
     player.draw(screen)
