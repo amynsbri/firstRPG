@@ -7,6 +7,13 @@ class StaticItem(pygame.sprite.Sprite):
         self.image = surface
         self.rect = self.image.get_rect(topleft = pos)
 
+class Platform(pygame.sprite.Sprite):
+    def __init__(self, pos, surface):
+        super().__init__()
+        self.image = surface
+        self.rect = self.image.get_rect(topleft = pos)
+        
+
 class Player(pygame.sprite.Sprite): # editing rn
     def __init__(self):
         super().__init__()
@@ -32,6 +39,7 @@ class Player(pygame.sprite.Sprite): # editing rn
         self.image = self.animations[self.state][self.frame_index]
         self.rect = self.image.get_rect(center = (640, 535))
         self.flip = False
+        self.hitbox = self.rect.inflate(-60, 0)
 
     def get_frames(self, x, y, w, h, count):
         """Slices a row of frames from the sheet"""
@@ -43,17 +51,32 @@ class Player(pygame.sprite.Sprite): # editing rn
             frames.append(sub)
         return frames
     
-    def apply_gravity(self):
+    def apply_gravity(self, platforms):
+        self.on_ground = False
+
         self.direction.y += self.gravity
-        self.rect.y += self.direction.y
+        self.hitbox.y += self.direction.y
+
+        # 2. Check for platform collisions
+        # This loop checks every platform in the group you pass in
+        for platform in platforms:
+            if self.hitbox.colliderect(platform.rect):
+                # Only stop if we are falling DOWN onto the platfrom
+                if self.direction.y  > 0:
+                    self.hitbox.bottom = platform.rect.top
+
+                    self.hitbox.bottom = platform.rect.top + 25
+
+                    self.direction.y = 0
+                    self.on_ground = True
 
         # Floor collision
-        if self.rect.bottom >= 620:
-            self.rect.bottom = 620
+        if self.hitbox.bottom >= 620:
+            self.hitbox.bottom = 620
             self.direction.y = 0
             self.on_ground = True
-        else:
-            self.on_ground = False
+
+        self.rect.center = self.hitbox.center
     
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -87,6 +110,8 @@ class Player(pygame.sprite.Sprite): # editing rn
 
         
     def animate(self):
+        if not self.on_ground:
+            self.state = 'jump'
         # Update frame index
         self.frame_index += 0.1 # Adjust this number for speed
         if self.frame_index >= len(self.animations[self.state]):
@@ -99,30 +124,27 @@ class Player(pygame.sprite.Sprite): # editing rn
         image = self.animations[self.state][int(self.frame_index)]
         self.image = pygame.transform.flip(image, self.flip, False)
 
-    def update(self):
+    def update(self, platforms):
         self.handle_input()
-
         # Apply horizontal movement
-        self.rect.x += self.direction.x
-
+        self.hitbox.x += self.direction.x
         # Apply vertical movement and gravity
-        self.apply_gravity()
-
+        self.apply_gravity(platforms)
         self.animate()
+
+        self.rect.center = self.hitbox.center
 
 pygame.init()
 screen = pygame.display.set_mode((1280,720))
 clock = pygame.time.Clock()
 pygame.display.set_caption("My First RPG")
 
-tileset = pygame.image.load('asset/Block-Land-16x16/World-Tiles.png').convert()
 forest_sky = pygame.image.load('asset/background-asset/parallax/forest/forest_sky.png').convert()
 
+# Floor
+tileset = pygame.image.load('asset/Block-Land-16x16/World-Tiles.png').convert()
 tile_surf = tileset.subsurface(pygame.Rect(0, 400, 75, 60))
-
 decor_group = pygame.sprite.Group()
-player = pygame.sprite.GroupSingle(Player())
-
 
 for i in range(25):
     x_pos = i * 50
@@ -134,6 +156,24 @@ for i in range(25):
 
     decor_group.add(new_tile)
 
+# Platform
+tileset_pf = pygame.image.load('asset/asset_1/sprites/tilesets/plains.png').convert()
+plat_tile_surf = tileset_pf.subsurface(pygame.Rect(15, 112, 48, 16))
+plat_tile_surf = pygame.transform.rotozoom(plat_tile_surf, 0, 3.0)
+
+platforms_group = pygame.sprite.Group()
+
+platform_coords = [(100, 400), (100, 100), (450, 250), (800, 400), (1000, 100)]
+
+for pos in platform_coords:
+    # Pass the 'plat_tile_surf' we just created into the class
+    new_platform = Platform(pos, plat_tile_surf)
+    platforms_group.add(new_platform)
+
+player = pygame.sprite.GroupSingle(Player())
+
+
+
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -144,8 +184,10 @@ while True:
 
     screen.blit(forest_sky,(0,0))
     decor_group.draw(screen)
+    platforms_group.draw(screen)
 
-    player.update() # This calls handle_input and animate automatically
+        
+    player.update(platforms_group) # This calls handle_input and animate automatically
     player.draw(screen)
 
     pygame.display.update()
