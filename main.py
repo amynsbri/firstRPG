@@ -7,7 +7,7 @@ class StaticItem(pygame.sprite.Sprite):
         self.image = surface
         self.rect = self.image.get_rect(topleft = pos)
 
-class Player(pygame.sprite.Sprite):
+class Player(pygame.sprite.Sprite): # editing rn
     def __init__(self):
         super().__init__()
         self.sheet = pygame.image.load('asset/asset_1/sprites/characters/player.png')
@@ -18,7 +18,14 @@ class Player(pygame.sprite.Sprite):
             'idle': self.get_frames(0, 48, 48, 48, 1),   # 1 frame
             'walk': self.get_frames(0, 48, 48, 48, 6),   # 6 frames in a row
             'attack': self.get_frames(0, 336, 48, 48, 4),  # 4 frames in a row
+            'jump': self.get_frames(0, 432, 48, 48, 3) # Add this!
         }
+
+        # Physics variables
+        self.direction = pygame.math.Vector2(0, 0)
+        self.gravity = 0.8      # Pulling force
+        self.jump_speed = -16   # Initial upward burst (negative is UP in Pygame)
+        self.on_ground = False  # To check if we can jump
 
         self.state = 'idle'
         self.frame_index = 0
@@ -36,28 +43,46 @@ class Player(pygame.sprite.Sprite):
             frames.append(sub)
         return frames
     
+    def apply_gravity(self):
+        self.direction.y += self.gravity
+        self.rect.y += self.direction.y
+
+        # Floor collision
+        if self.rect.bottom >= 620:
+            self.rect.bottom = 620
+            self.direction.y = 0
+            self.on_ground = True
+        else:
+            self.on_ground = False
+    
     def handle_input(self):
         keys = pygame.key.get_pressed()
         mouse = pygame.mouse.get_pressed()
 
-        # Default state
-        new_state = 'idle'
-        
         # Attack takes priority
-        if mouse[0]: #Left Click
-            new_state = 'attack'
-        elif keys[pygame.K_d]:
-            new_state = 'walk'
+        if keys[pygame.K_d]:
+            self.direction.x = 5
             self.flip = False
-            self.rect.x += 5
+            if self.on_ground and self.state != 'attack': self.state = 'walk'
         elif keys[pygame.K_a]:
-            new_state = 'walk'
+            self.direction.x = -5
             self.flip = True
-            self.rect.x -= 5
+            if self.on_ground and self.state != 'attack': self.state = 'walk'
+        else:
+            self.direction.x = 0
+            if self.on_ground and self.state not in ['attack', 'jump']:
+                self.state = 'idle'
 
-        # if we changed state, reset the animation timer
-        if new_state != self.state:
-            self.state = new_state
+        # Jump Logic
+        if keys[pygame.K_SPACE] and self.on_ground:
+            self.direction.y = self.jump_speed
+            self.state = 'jump'
+            self.frame_index = 0
+            self.on_ground = False
+
+        # Attack Logic
+        if mouse[0]:
+            self.state = 'attack'
             self.frame_index = 0
 
         
@@ -76,6 +101,13 @@ class Player(pygame.sprite.Sprite):
 
     def update(self):
         self.handle_input()
+
+        # Apply horizontal movement
+        self.rect.x += self.direction.x
+
+        # Apply vertical movement and gravity
+        self.apply_gravity()
+
         self.animate()
 
 pygame.init()
