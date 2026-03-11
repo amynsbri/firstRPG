@@ -131,27 +131,109 @@ class Player(pygame.sprite.Sprite):
         self.rect.midbottom = self.hitbox.midbottom
 
 class Slime(pygame.sprite.Sprite):
-    def __init__(self, platform):
+    def __init__(self, platform, player_group):
         super().__init__()
-        # self.sheet = pygame.image.load('asset/asset_1/sprites/characters/skeleton.png').convert_alpha()
+        self.sheet = pygame.image.load('asset/asset_1/sprites/characters/slime.png').convert_alpha()
 
-        # Slime placeholder
-        self.image = pygame.Surface((32, 32))
-        self.image.fill('Green')
+        # Define animations
+        self.animations = {
+            'walk': self.get_frames(0, 0, 32, 32, 4),   # Row 0, 4 frames
+            'jump': self.get_frames(0, 192, 32, 32, 7),   # Row 1, 4 frames
+        }
 
         self.platform = platform
-        # Spawn at a random X position within the platform width
-        start_x = random.randint(self.platform.rect.left, self.platform.rect.right - 32)
-        self.rect = self.image.get_rect(midbottom = (start_x, self.platform.rect.top))
+        self.player_group = player_group # To find the player
 
-        self.speed = random.choice([-2, 2]) # random initial direction
+        self.state = 'walk'
+        self.frame_index = 0
+        self.image = self.animations[self.state][self.frame_index]
+
+        # Spawn at a random X position within the platform width
+        start_x = random.randint(self.platform.rect.left, self.platform.rect.right - 64)
+        self.rect = self.image.get_rect(bottom = self.platform.rect.top + 25)
+
+        # AI & Speed Settings
+        self.walk_speed = 1.5 # Slower patrol speed
+        self.jump_speed = 4.0 # Speed during attack
+        self.speed = random.choice([-self.walk_speed, self.walk_speed]) # random initial direction
+        self.flip = False
+
+        # Cooldown Logic
+        self.can_jump = True
+        self.attack_time = 0
+        self.attack_cooldown = 2000 # 2 seconds delay
+
+    def get_frames(self, x, y, w, h, count):
+        frames = []
+        for i in range(count):
+            sub = self.sheet.subsurface(pygame.Rect(x + (i * w), y, w, h))
+            sub = pygame.transform.rotozoom(sub, 0, 2.0) # Scale it up
+            frames.append(sub)
+        return frames
+    
+    def cooldown_timer(self):
+        # Check if enough time as passed to jump again
+        if not self.can_jump:
+            current_time = pygame.time.get_ticks()
+            if current_time - self.attack_time >= self.attack_cooldown:
+                self.can_jump = True
+    
+    def animate(self):
+        self.frame_index += 0.1
+
+        if self.frame_index >= len(self.animations[self.state]):
+            self.frame_index = 0
+            # If it finished a jump it goes back to walking
+            if self.state == 'jump':
+                self.state = 'walk'
+                self.speed = self.walk_speed if not self.flip else -self.walk_speed
+                # Start cooldown
+                self.can_jump = False
+                self.attack_time = pygame.time.get_ticks()
+        
+        self.image = self.animations[self.state][int(self.frame_index)]
+        self.image = pygame.transform.flip(self.image, self.flip, False)
+
+    def check_player(self):
+        # Find the player object from the group
+        player_sprite = self.player_group.sprite
+
+        # Only jump if not on cooldown
+        if player_sprite and self.can_jump:
+            # Calculate distance betwen slime and player
+            distance_x = abs(self.rect.centerx - player_sprite.rect.centerx)
+            distance_y = abs(self.rect.centery - player_sprite.rect.centery)
+
+            # If player is within 150 pixels horizontally and roughly same height
+            if distance_x < 200 and distance_y < 80:
+                if self.state == 'walk':
+                    self.state = 'jump'
+                    self.frame_index = 0
+                    # Move slightly towards player when jumping
+                    if self.rect.centerx > player_sprite.rect.centerx:
+                        self.speed = -self.jump_speed
+                        self.flip = True
+                    else:
+                        self.speed = self.jump_speed
+                        self.flip = False
 
     def update(self):
+        self.cooldown_timer()
+        self.check_player()
+        self.animate()
+
+        # Movement logic
         self.rect.x += self.speed
 
-        # Turn around if hitting the edge of the platform
-        if self.rect.right > self.platform.rect.right or self.rect.left < self.platform.rect.left:
-            self.speed *= -1
+        # If we hit the right edge, force speed to be negative
+        if self.rect.right > self.platform.rect.right:
+            self.rect.right = self.platform.rect.right
+            self.speed = -abs(self.speed)
+            self.flip = True
+        elif self.rect.left < self.platform.rect.left:
+            self.rect.left = self.platform.rect.left
+            self.speed = abs(self.speed)
+            self.flip = False
 
 
 pygame.init()
@@ -201,7 +283,7 @@ slimes_group = pygame.sprite.Group()
 for plat in platforms_group:
     # 50% chance to spawn a slime on this platform
     for _ in range(random.randint(1, 2)):
-        new_slime = Slime(plat)
+        new_slime = Slime(plat, player)
         slimes_group.add(new_slime)
 
 
