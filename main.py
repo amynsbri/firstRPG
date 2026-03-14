@@ -39,7 +39,7 @@ class Player(pygame.sprite.Sprite):
         self.image = self.animations[self.state][self.frame_index]
         self.rect = self.image.get_rect(center = (640, 535))
         self.flip = False
-        self.hitbox = self.rect.inflate(-250, -110)
+        self.hitbox = self.rect.inflate(-100, -110)
 
         # Adding health
         self.max_health = 100
@@ -354,7 +354,25 @@ while True:
         if event.type == pygame.QUIT:
             pygame.quit()
             exit()
-    
+    # --- PLAYER ATTACK LOGIC ---
+    if player.sprite.state == 'attack':
+        # Check if the attacking player touches any slimes using masks
+        # False means we don't kill the slime immediately (we wait for HP to hit 0)
+        attack_hits = pygame.sprite.spritecollide(
+            player.sprite, 
+            slimes_group, 
+            False, 
+            pygame.sprite.collide_mask
+        )
+
+        for slime in attack_hits:
+            # Reduce slime health
+            slime.current_health -= 20 # Adjust damage amount as needed
+            
+            # If slime health is 0 or less, remove it
+            if slime.current_health <= 0:
+                slime.kill()
+
     hit_slimes = pygame.sprite.spritecollide(
     player.sprite, 
     slimes_group, 
