@@ -39,7 +39,17 @@ class Player(pygame.sprite.Sprite):
         self.image = self.animations[self.state][self.frame_index]
         self.rect = self.image.get_rect(center = (640, 535))
         self.flip = False
-        self.hitbox = self.rect.inflate(-120, -100)
+        self.hitbox = self.rect.inflate(-250, -110)
+
+        # Adding health
+        self.max_health = 100
+        self.current_health = 100
+        self.health_bar_length = 50
+
+        # New variables for knockback
+        self.is_knocked_back = False
+        self.knockback_start_time = 0
+        self.knockback_duration = 300 # 0.3 seconds
 
     def get_frames(self, x, y, w, h, count):
         """Slices a row of frames from the sheet"""
@@ -120,14 +130,52 @@ class Player(pygame.sprite.Sprite):
         image = self.animations[self.state][int(self.frame_index)]
         self.image = pygame.transform.flip(image, self.flip, False)
 
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def draw_health(self, surface):
+        # Position the bar above the player's head
+        bar_rect = pygame.Rect(self.rect.centerx - 25, self.rect.top + 50, self.health_bar_length, 5)
+        # Calculate health ratio
+        health_ratio = self.current_health / self.max_health
+        # Draw background (Red) and foreground (Green)
+        pygame.draw.rect(surface, (255, 0, 0), bar_rect)
+        pygame.draw.rect(surface, (0, 255, 0), (bar_rect.x, bar_rect.y, self.health_bar_length * health_ratio, 5))
+
+    def take_damage(self, amount, source_pos):
+        # Only take damage if not already recovering from knockback
+        if not self.is_knocked_back:
+            self.current_health -= amount
+            self.is_knocked_back = True
+            self.knockback_start_time = pygame.time.get_ticks()
+            
+            # Calculate direction: if slime is to the right, push left.
+            if self.rect.centerx < source_pos[0]:
+                self.direction.x = -15  # Pushed Left
+            else:
+                self.direction.x = 15   # Pushed Right
+            
+            # Add a small vertical hop to the knockback
+            self.direction.y = -8
+            self.on_ground = False
+
     def update(self, platforms):
-        self.handle_input()
-        # Apply horizontal movement
+        current_time = pygame.time.get_ticks()
+        
+        # If knocked back, bypass handle_input so player can't move mid-air
+        if self.is_knocked_back:
+            # This reduces the horizontal speed by 10% every frame (approx 60fps)
+            self.direction.x *= 0.9 
+            
+            # Stop the knockback if the timer runs out
+            if current_time - self.knockback_start_time > self.knockback_duration:
+                self.is_knocked_back = False
+        else:
+            self.handle_input()
+
+        # Apply movement and physics
         self.hitbox.x += self.direction.x
-        # Apply vertical movement and gravity
         self.apply_gravity(platforms)
         self.animate()
-
         self.rect.midbottom = self.hitbox.midbottom
 
 class Slime(pygame.sprite.Sprite):
@@ -163,6 +211,11 @@ class Slime(pygame.sprite.Sprite):
         self.attack_time = 0
         self.attack_cooldown = 2000 # 2 seconds delay
 
+        # adding health
+        self.max_health = 30
+        self.current_health = 30
+        self.health_bar_length = 40
+
     def get_frames(self, x, y, w, h, count):
         frames = []
         for i in range(count):
@@ -194,6 +247,8 @@ class Slime(pygame.sprite.Sprite):
         self.image = self.animations[self.state][int(self.frame_index)]
         self.image = pygame.transform.flip(self.image, self.flip, False)
 
+        self.mask = pygame.mask.from_surface(self.image)
+
     def check_player(self):
         # Find the player object from the group
         player_sprite = self.player_group.sprite
@@ -216,6 +271,13 @@ class Slime(pygame.sprite.Sprite):
                     else:
                         self.speed = self.jump_speed
                         self.flip = False
+
+    def draw_health(self, surface):
+        # Position the bar above the slime's head
+        bar_rect = pygame.Rect(self.rect.centerx - 20, self.rect.top + 5, self.health_bar_length, 4)
+        health_ratio = self.current_health / self.max_health
+        pygame.draw.rect(surface, (255, 0, 0), bar_rect)
+        pygame.draw.rect(surface, (0, 255, 0), (bar_rect.x, bar_rect.y, self.health_bar_length * health_ratio, 4))
 
     def update(self):
         self.cooldown_timer()
@@ -293,18 +355,32 @@ while True:
             pygame.quit()
             exit()
     
-    screen.fill('gray')
+    hit_slimes = pygame.sprite.spritecollide(
+    player.sprite, 
+    slimes_group, 
+    False, 
+    pygame.sprite.collide_mask # This checks actual pixels!
+)
 
+    if hit_slimes:
+        for slime in hit_slimes:
+            player.sprite.take_damage(10, slime.rect.center)
+
+    screen.fill('gray')
     screen.blit(forest_sky,(0,0))
     decor_group.draw(screen)
     platforms_group.draw(screen)
 
-    # Slimes
+    # Slimes Logic
     slimes_group.update()
     slimes_group.draw(screen)
+    for slime in slimes_group:
+        slime.draw_health(screen) # Manually draw health bars
         
-    player.update(platforms_group) # This calls handle_input and animate automatically
+    # Player Logic
+    player.update(platforms_group)
     player.draw(screen)
+    player.sprite.draw_health(screen) # Draw player health bar
 
     pygame.display.update()
     clock.tick(60)
