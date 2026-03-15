@@ -2,11 +2,45 @@ import pygame
 from sys import exit
 import random
 
+# Game States
+MENU = 0
+GAME = 1
+game_state = MENU
+
 class StaticItem(pygame.sprite.Sprite):
     def __init__(self, pos, surface):
         super().__init__()
         self.image = surface
         self.rect = self.image.get_rect(topleft = pos)
+
+class SpriteButton():
+    def __init__(self, pos, surface):
+        self.image = surface
+        # Create a hover version by brightening the original image
+        self.hover_image = self.image.copy()
+        self.hover_image.fill((30, 30, 30), special_flags=pygame.BLEND_RGB_ADD)
+        
+        self.rect = self.image.get_rect(center = pos)
+        self.pressed = False
+
+    def draw(self, surface):
+        action = False
+        pos = pygame.mouse.get_pos()
+
+        # Change image on hover
+        if self.rect.collidepoint(pos):
+            current_img = self.hover_image
+            if pygame.mouse.get_pressed()[0] == 1 and not self.pressed:
+                self.pressed = True
+                action = True
+        else:
+            current_img = self.image
+
+        if pygame.mouse.get_pressed()[0] == 0:
+            self.pressed = False
+
+        surface.blit(current_img, self.rect)
+        return action
 
 class Platform(pygame.sprite.Sprite):
     def __init__(self, pos, surface):
@@ -303,6 +337,32 @@ screen = pygame.display.set_mode((1280,720))
 clock = pygame.time.Clock()
 pygame.display.set_caption("My First RPG")
 
+# Load the full UI sheet
+ui_sheet = pygame.image.load('asset/FreeDemo.png').convert_alpha()
+
+def get_ui_element(x, y, w, h):
+    sheet_rect = ui_sheet.get_rect()
+    requested_rect = pygame.Rect(x, y, w, h)
+    safe_rect = requested_rect.clip(sheet_rect)
+
+    surf = ui_sheet.subsurface(safe_rect)
+    return pygame.transform.rotozoom(surf, 0, 3.5)
+
+# --- Safe Coordinates for your 300x300 sheet ---
+# Board: Starting a bit further in from the top-left
+bamboo_board = get_ui_element(10, 100, 120, 145)
+board_rect = bamboo_board.get_rect(center=(640, 360))
+
+# Buttons: Narrower width to ensure they don't pop out of the sheet
+play_surf     = get_ui_element(45, 146, 53, 15)
+settings_surf = get_ui_element(45, 166, 48, 15)
+exit_surf     = get_ui_element(58, 235, 48, 15)
+
+# Initialize Buttons
+play_button     = SpriteButton((643, 298), play_surf)
+settings_button = SpriteButton((643, 365), settings_surf)
+exit_button     = SpriteButton((643, 455), exit_surf)
+
 forest_sky = pygame.image.load('asset/background-asset/parallax/forest/forest_sky.png').convert()
 
 # Floor
@@ -354,51 +414,66 @@ while True:
         if event.type == pygame.QUIT:
             pygame.quit()
             exit()
-    # --- PLAYER ATTACK LOGIC ---
-    if player.sprite.state == 'attack':
-        # Check if the attacking player touches any slimes using masks
-        # False means we don't kill the slime immediately (we wait for HP to hit 0)
-        attack_hits = pygame.sprite.spritecollide(
+
+    if game_state == MENU:
+        # 1. Background color
+        screen.fill('#2d3b2d') 
+        
+        # 2. Draw the Bamboo Board background FIRST
+        screen.blit(bamboo_board, board_rect)
+        
+        # 3. Draw and check buttons (They appear on top of the board)
+        if play_button.draw(screen):
+            game_state = GAME
+        
+        if settings_button.draw(screen):
+            print("Settings Clicked!")
+            
+        if exit_button.draw(screen):
+            pygame.quit()
+            exit()
+
+    elif game_state == GAME:
+        # 1. PLAYER ATTACK LOGIC
+        if player.sprite.state == 'attack':
+            attack_hits = pygame.sprite.spritecollide(
+                player.sprite, 
+                slimes_group, 
+                False, 
+                pygame.sprite.collide_mask
+            )
+            for slime in attack_hits:
+                slime.current_health -= 20 
+                if slime.current_health <= 0:
+                    slime.kill()
+
+        # 2. HIT DETECTION (SLIME HIT PLAYER)
+        hit_slimes = pygame.sprite.spritecollide(
             player.sprite, 
             slimes_group, 
             False, 
             pygame.sprite.collide_mask
         )
 
-        for slime in attack_hits:
-            # Reduce slime health
-            slime.current_health -= 20 # Adjust damage amount as needed
+        if hit_slimes:
+            for slime in hit_slimes:
+                player.sprite.take_damage(10, slime.rect.center)
+
+        # 3. DRAWING & UPDATES
+        screen.fill('gray')
+        screen.blit(forest_sky,(0,0))
+        decor_group.draw(screen)
+        platforms_group.draw(screen)
+
+        slimes_group.update()
+        slimes_group.draw(screen)
+        for slime in slimes_group:
+            slime.draw_health(screen)
             
-            # If slime health is 0 or less, remove it
-            if slime.current_health <= 0:
-                slime.kill()
+        player.update(platforms_group)
+        player.draw(screen)
+        player.sprite.draw_health(screen)
 
-    hit_slimes = pygame.sprite.spritecollide(
-    player.sprite, 
-    slimes_group, 
-    False, 
-    pygame.sprite.collide_mask # This checks actual pixels!
-)
-
-    if hit_slimes:
-        for slime in hit_slimes:
-            player.sprite.take_damage(10, slime.rect.center)
-
-    screen.fill('gray')
-    screen.blit(forest_sky,(0,0))
-    decor_group.draw(screen)
-    platforms_group.draw(screen)
-
-    # Slimes Logic
-    slimes_group.update()
-    slimes_group.draw(screen)
-    for slime in slimes_group:
-        slime.draw_health(screen) # Manually draw health bars
-        
-    # Player Logic
-    player.update(platforms_group)
-    player.draw(screen)
-    player.sprite.draw_health(screen) # Draw player health bar
-
+    # Always update display and tick the clock at the very end of the loop
     pygame.display.update()
     clock.tick(60)
