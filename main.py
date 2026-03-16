@@ -5,6 +5,7 @@ import random
 # Game States
 MENU = 0
 GAME = 1
+DEATH = 2
 game_state = MENU
 
 class StaticItem(pygame.sprite.Sprite):
@@ -85,6 +86,8 @@ class Player(pygame.sprite.Sprite):
         self.knockback_start_time = 0
         self.knockback_duration = 300 # 0.3 seconds
 
+        self.has_attacked = False
+
     def get_frames(self, x, y, w, h, count):
         """Slices a row of frames from the sheet"""
         frames = []
@@ -152,18 +155,22 @@ class Player(pygame.sprite.Sprite):
     def animate(self):
         if not self.on_ground:
             self.state = 'jump'
-        # Update frame index
-        self.frame_index += 0.1 # Adjust this number for speed
+            
+        self.frame_index += 0.1 
+        
+        # --- NEW LOGIC: Damage Trigger ---
+        # Only deal damage when the sword is actually "swinging" (e.g., frame 2)
+        self.can_deal_damage = False
+        if self.state == 'attack' and int(self.frame_index) == 2:
+            self.can_deal_damage = True
+
         if self.frame_index >= len(self.animations[self.state]):
-            # If we finished attacking, go back to idle
             if self.state == 'attack':
                 self.state = 'idle'
             self.frame_index = 0
 
-        # Set the image and flip it if moving left
         image = self.animations[self.state][int(self.frame_index)]
         self.image = pygame.transform.flip(image, self.flip, False)
-
         self.mask = pygame.mask.from_surface(self.image)
 
     def draw_health(self, surface):
@@ -331,6 +338,36 @@ class Slime(pygame.sprite.Sprite):
             self.speed = abs(self.speed)
             self.flip = False
 
+class Boss(Slime):
+    def __init__(self, pos, player_group):
+        # 1. Create a "fake" platform and give it a rect BEFORE calling super()
+        dummy_platform = pygame.sprite.Sprite()
+        dummy_platform.rect = pygame.Rect(0, 0, 1280, 720) 
+        
+        # 2. Pass that dummy platform to the Slime init
+        super().__init__(dummy_platform, player_group) 
+        
+        # 3. Scale up the Boss image
+        self.image = pygame.transform.rotozoom(self.image, 0, 4.0) 
+        self.rect = self.image.get_rect(center = pos)
+        
+        # 4. Boss Stats
+        self.max_health = 500
+        self.current_health = 500
+        self.speed = 2
+        self.health_bar_length = 200
+
+    def update(self):
+        # Boss movement: Follow the player
+        player_sprite = self.player_group.sprite
+        if player_sprite:
+            if self.rect.centerx < player_sprite.rect.centerx:
+                self.rect.x += self.speed
+                self.flip = False
+            else:
+                self.rect.x -= self.speed
+                self.flip = True
+        self.animate()
 
 pygame.init()
 screen = pygame.display.set_mode((1280,720))
@@ -388,12 +425,42 @@ plat_tile_surf = pygame.transform.scale(plat_tile_surf, (288, 48))
 
 platforms_group = pygame.sprite.Group()
 
-platform_coords = [(100, 400), (100, 100), (450, 250), (800, 400), (900, 150)]
+LEVEL_DATA = {
+    1: {"platforms": [(100, 400), (450,250), (800,400)], "slimes_per_platform": 1, "goal_score": 3},
+    2: {"platforms": [(50, 500), (300, 350), (600, 200), (900, 350)], "slimes_per_platform": 2, "goal_score": 8},
+    3: {"platforms": [(100,150), (1000, 150), (550, 400), (300, 300), (800, 300)], "slimes_per_platform": 2, "goal_score": 10}, # Fixed 'platform'
+    4: {"platforms": [(100,150), (1000, 150), (550, 400), (300, 300), (800, 300)], "slimes_per_platform": 2, "goal_score": 10}, # Fixed 'platform'
+    5: {"platforms": [(200, 400), (800, 400)], "slimes_per_platform": 0, "is_boss": True} # Fixed 'platform'
+}
 
-for pos in platform_coords:
-    # Pass the 'plat_tile_surf' we just created into the class
-    new_platform = Platform(pos, plat_tile_surf)
-    platforms_group.add(new_platform)
+# 2. Setup Groups
+platforms_group = pygame.sprite.Group()
+player = pygame.sprite.GroupSingle(Player())
+slimes_group = pygame.sprite.Group()
+boss_group = pygame.sprite.Group()
+
+# 3. Define the Function (Must be BEFORE calling it)
+def load_level(level_num):
+    global current_level, enemies_killed
+    current_level = level_num
+    enemies_killed = 0
+    platforms_group.empty()
+    slimes_group.empty()
+    boss_group.empty()
+
+    data = LEVEL_DATA[level_num]
+    for pos in data["platforms"]:
+        platforms_group.add(Platform(pos, plat_tile_surf))
+
+    if data.get("is_boss"):
+        boss_group.add(Boss((640, 500), player))
+    else:
+        for plat in platforms_group:
+            for _ in range(data["slimes_per_platform"]):
+                slimes_group.add(Slime(plat, player))
+
+current_level = 1
+enemies_killed = 0
 
 player = pygame.sprite.GroupSingle(Player())
 
@@ -409,6 +476,56 @@ for plat in platforms_group:
         slimes_group.add(new_slime)
 
 
+def reset_game():
+    global game_state, current_level, enemies_killed
+    
+    # Reset stats
+    current_level = 1
+    enemies_killed = 0
+    
+    # Reset Player
+    player.sprite.current_health = 100
+    player.sprite.hitbox.center = (640, 535)
+    player.sprite.state = 'idle'
+    player.sprite.is_knocked_back = False
+    
+    # Reload the first level (this clears groups and spawns new enemies)
+    load_level(1)
+
+boss_group = pygame.sprite.Group()
+
+def load_level(level_num):
+    global current_level, enemies_killed
+    current_level = level_num
+    enemies_killed = 0
+
+    # Clear old sprites
+    platforms_group.empty()
+    slimes_group.empty()
+    boss_group.empty()
+
+    data = LEVEL_DATA[level_num]
+
+    # Build Platforms
+    for pos in data["platforms"]:
+        platforms_group.add(Platform(pos, plat_tile_surf))
+
+    # Build Enemies
+    if data.get("is_boss"):
+        boss_group.add(Boss((640, 500), player))
+    else:
+        for plat in platforms_group:
+            for _ in range(data["slimes_per_platform"]):
+                slimes_group.add(Slime(plat, player))
+
+# --- START GAME ---
+current_level = 1
+enemies_killed = 0
+load_level(1)
+
+# Create a font for the UI
+game_font = pygame.font.Font('asset/material/font/Pixeltype.ttf' ,50)
+
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -416,64 +533,107 @@ while True:
             exit()
 
     if game_state == MENU:
-        # 1. Background color
         screen.fill('#2d3b2d') 
-        
-        # 2. Draw the Bamboo Board background FIRST
         screen.blit(bamboo_board, board_rect)
-        
-        # 3. Draw and check buttons (They appear on top of the board)
         if play_button.draw(screen):
             game_state = GAME
-        
-        if settings_button.draw(screen):
-            print("Settings Clicked!")
-            
         if exit_button.draw(screen):
             pygame.quit()
             exit()
 
     elif game_state == GAME:
-        # 1. PLAYER ATTACK LOGIC
-        if player.sprite.state == 'attack':
-            attack_hits = pygame.sprite.spritecollide(
-                player.sprite, 
-                slimes_group, 
-                False, 
-                pygame.sprite.collide_mask
-            )
-            for slime in attack_hits:
-                slime.current_health -= 20 
-                if slime.current_health <= 0:
-                    slime.kill()
+        # 1. PLAYER ATTACK LOGIC (Sword Reach)
+        if player.sprite.state == 'attack' and player.sprite.can_deal_damage:
+            sword_rect = player.sprite.rect.copy()
+            if not player.sprite.flip:
+                sword_rect.x += 70
+            else:
+                sword_rect.x -= 60
 
-        # 2. HIT DETECTION (SLIME HIT PLAYER)
-        hit_slimes = pygame.sprite.spritecollide(
-            player.sprite, 
-            slimes_group, 
-            False, 
-            pygame.sprite.collide_mask
-        )
+            for slime in slimes_group:
+                if sword_rect.colliderect(slime.rect):
+                    slime.current_health -= 20
+                    player.sprite.has_attacked = True # LOCK THE ATTACK
+                    if slime.current_health <= 0:
+                        slime.kill()
+                        enemies_killed += 1
 
-        if hit_slimes:
-            for slime in hit_slimes:
-                player.sprite.take_damage(10, slime.rect.center)
+            # Hit Boss
+            for boss in boss_group:
+                if sword_rect.colliderect(boss.rect):
+                    boss.current_health -= 10
+                    player.sprite.has_attacked = True # LOCK THE ATTACK
+                    if boss.current_health <= 0:
+                        boss.kill()
 
-        # 3. DRAWING & UPDATES
+        # 2. LEVEL PROGRESSION
+        if not LEVEL_DATA[current_level].get("is_boss"):
+            if enemies_killed >= LEVEL_DATA[current_level]["goal_score"]:
+                if current_level < 5: 
+                    load_level(current_level + 1)
+                else: 
+                    game_state = MENU 
+        else:
+            if len(boss_group) == 0:
+                print("YOU WON THE GAME!")
+                game_state = MENU
+
+        # 3. COLLISION (Enemies hitting Player)
+        # Only take damage if NOT attacking (Invincibility Frames)
+        if player.sprite.state != 'attack':
+            # Check Slimes
+            hit_slimes = pygame.sprite.spritecollide(player.sprite, slimes_group, False, pygame.sprite.collide_mask)
+            if hit_slimes:
+                player.sprite.take_damage(30, hit_slimes[0].rect.center)
+            
+            # Check Boss
+            hit_boss = pygame.sprite.spritecollide(player.sprite, boss_group, False, pygame.sprite.collide_mask)
+            if hit_boss:
+                player.sprite.take_damage(40, hit_boss[0].rect.center)
+
+        # 4. DRAWING & UPDATES
         screen.fill('gray')
-        screen.blit(forest_sky,(0,0))
+        screen.blit(forest_sky, (0,0))
         decor_group.draw(screen)
         platforms_group.draw(screen)
 
         slimes_group.update()
         slimes_group.draw(screen)
-        for slime in slimes_group:
-            slime.draw_health(screen)
+        for slime in slimes_group: slime.draw_health(screen)
+
+        boss_group.update()
+        boss_group.draw(screen)
+        for boss in boss_group: boss.draw_health(screen)
             
         player.update(platforms_group)
         player.draw(screen)
         player.sprite.draw_health(screen)
 
-    # Always update display and tick the clock at the very end of the loop
+        # 5. UI (Level & Score)
+        level_surf = game_font.render(f'Level: {current_level}', True, 'White')
+        screen.blit(level_surf, (20, 20))
+        if not LEVEL_DATA[current_level].get("is_boss"):
+            score_surf = game_font.render(f'Kills: {enemies_killed}/{LEVEL_DATA[current_level]["goal_score"]}', True, 'White')
+            screen.blit(score_surf, (20, 60))
+
+        if player.sprite.current_health <= 0:
+            game_state = DEATH
+    
+    elif game_state == DEATH:
+        screen.blit(forest_sky, (0, 0))
+        # Draw a red transparent overlay
+        death_overlay = pygame.Surface((1280, 720))
+        death_overlay.set_alpha(150)
+        death_overlay.fill((150, 0, 0))
+        screen.blit(death_overlay, (0, 0))
+
+        screen.blit(bamboo_board, board_rect)
+        if play_button.draw(screen): # Retry
+            reset_game()
+            game_state = GAME
+        if exit_button.draw(screen): # Quit to Menu
+            reset_game()
+            game_state = MENU
+
     pygame.display.update()
     clock.tick(60)
